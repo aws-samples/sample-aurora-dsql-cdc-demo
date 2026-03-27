@@ -1,0 +1,399 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DSQL CDC Pipeline with Lambda, Bedrock, and S3 Vectors'
+
+Parameters:
+  KinesisStreamArn:
+    Type: String
+    Description: ARN of the existing Kinesis stream for CDC events
+    Default: arn:aws:kinesis:us-east-2:771062417019:stream/dsql-cdc-stream
+  
+  DataBucketName:
+    Type: String
+    Description: S3 bucket name for storing CDC event data
+    Default: dsql-cdc-processed-771062417019
+  
+  VectorBucketName:
+    Type: String
+    Description: S3 Vectors bucket name
+    Default: dsql-cdc-vectors
+  
+  VectorIndexName:
+    Type: String
+    Description: S3 Vectors index name
+    Default: cdc-events
+
+Resources:
+  # S3 Access Logging Bucket
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${DataBucketName}-access-logs'
+      AccessControl: LogDeliveryWrite
+      ObjectLockEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${DataBucketName}-access-logs'
+        LogFilePrefix: self-access-logs/
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for CDC Data Storage
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref DataBucketName
+      AccessControl: Private
+      ObjectLockEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogBucket
+        LogFilePrefix: data-bucket-logs/
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Bucket Policy for Access Log Bucket
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnforceSSLOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt AccessLogBucket.Arn
+              - !Sub '${AccessLogBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  # Bucket Policy for Data Bucket
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnforceSSLOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub '${DataBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  # DLQ for Lambda failures
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: dsql-cdc-dlq
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+
+  # KMS Key for CloudWatch Logs encryption
+  LogGroupKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for CloudWatch Log Group encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowCloudWatchLogs
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:Describe*
+            Resource: '*'
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/dsql-cdc'
+
+  # Managed Policies
+  KinesisReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-kinesis-read'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - kinesis:GetRecords
+              - kinesis:GetShardIterator
+              - kinesis:DescribeStream
+              - kinesis:DescribeStreamSummary
+              - kinesis:ListShards
+              - kinesis:ListStreams
+            Resource: !Ref KinesisStreamArn
+
+  S3DataPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-s3-data'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource: !Sub '${DataBucket.Arn}/*'
+
+  S3VectorsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-s3vectors'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3vectors:PutVectors
+              - s3vectors:GetVectors
+              - s3vectors:QueryVectors
+            Resource: !Sub 'arn:aws:s3vectors:${AWS::Region}:${AWS::AccountId}:bucket/${VectorBucketName}/index/${VectorIndexName}'
+
+  BedrockPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-bedrock'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: bedrock:InvokeModel
+            Resource:
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-text-premier-v1:0'
+
+  CloudWatchLogsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-cw-logs'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/dsql-cdc:*'
+
+  DlqSendPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::StackName}-dlq-send'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sqs:SendMessage
+            Resource: !GetAtt DeadLetterQueue.Arn
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Ref KinesisReadPolicy
+        - !Ref S3DataPolicy
+        - !Ref S3VectorsPolicy
+        - !Ref BedrockPolicy
+        - !Ref CloudWatchLogsPolicy
+        - !Ref DlqSendPolicy
+
+  # Lambda Function
+  CDCProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dsql-cdc
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import base64
+          import os
+          from collections import defaultdict
+          from datetime import datetime
+
+          bedrock = boto3.client('bedrock-runtime')
+          s3vectors = boto3.client('s3vectors')
+          s3 = boto3.client('s3')
+
+          def get_entity_id(data):
+              if data.get('after'):
+                  return data['after'].get('id')
+              if data.get('before'):
+                  return data['before'].get('id')
+              return None
+
+          def sort_batch_by_ts(records):
+              by_entity = defaultdict(list)
+              ungrouped = []
+              for record in records:
+                  data = json.loads(base64.b64decode(record['kinesis']['data']))
+                  eid = get_entity_id(data)
+                  entry = {'record': record, 'data': data, 'ts_ns': data.get('source', {}).get('ts_ns', data.get('ts_ns', 0))}
+                  if eid:
+                      by_entity[eid].append(entry)
+                  else:
+                      ungrouped.append(entry)
+              ordered = []
+              for eid, entries in by_entity.items():
+                  entries.sort(key=lambda e: e['ts_ns'])
+                  ordered.extend(entries)
+              ordered.extend(ungrouped)
+              return ordered
+
+          def process_record(record, data, vector_bucket, index_name, data_bucket):
+              source = data.get('source', {})
+              table_name = source.get('table', 'unknown')
+              schema_name = source.get('schema', 'public')
+              op_map = {'c': 'INSERT', 'u': 'UPDATE', 'd': 'DELETE', 'r': 'READ'}
+              action = op_map.get(data.get('op', ''), 'unknown')
+              text = json.dumps(data)
+              response = bedrock.invoke_model(
+                  modelId='amazon.titan-embed-text-v2:0',
+                  body=json.dumps({"inputText": text})
+              )
+              result = json.loads(response['body'].read())
+              vector_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{record['kinesis']['sequenceNumber']}"
+              s3vectors.put_vectors(
+                  vectorBucketName=vector_bucket,
+                  indexName=index_name,
+                  vectors=[{
+                      'key': vector_id,
+                      'data': {'float32': result['embedding']},
+                      'metadata': {
+                          'timestamp': datetime.utcnow().isoformat(),
+                          'action': action,
+                          'table': table_name,
+                          'schema': schema_name
+                      }
+                  }]
+              )
+              s3.put_object(
+                  Bucket=data_bucket,
+                  Key=f"data/{vector_id}.json",
+                  Body=json.dumps({
+                      'timestamp': datetime.utcnow().isoformat(),
+                      'cdc_event': data
+                  })
+              )
+
+          def handler(event, context):
+              vector_bucket = os.environ['VECTOR_BUCKET']
+              index_name = os.environ['INDEX_NAME']
+              data_bucket = os.environ['S3_BUCKET']
+              ordered = sort_batch_by_ts(event['Records'])
+              for entry in ordered:
+                  process_record(entry['record'], entry['data'], vector_bucket, index_name, data_bucket)
+              return {'statusCode': 200}
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref DataBucketName
+          VECTOR_BUCKET: !Ref VectorBucketName
+          INDEX_NAME: !Ref VectorIndexName
+
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/dsql-cdc
+      RetentionInDays: 7
+      KmsKeyId: !GetAtt LogGroupKmsKey.Arn
+
+  # Kinesis Event Source Mapping
+  KinesisEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref KinesisStreamArn
+      FunctionName: !Ref CDCProcessorFunction
+      StartingPosition: LATEST
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 5
+      ParallelizationFactor: 1
+      Enabled: true
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt CDCProcessorFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaArn'
+  
+  LambdaRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+  
+  DataBucketName:
+    Description: Name of the S3 data bucket
+    Value: !Ref DataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DataBucket'
+  
+  VectorBucketName:
+    Description: Name of the S3 Vectors bucket
+    Value: !Ref VectorBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-VectorBucket'
+  
+  DeadLetterQueueUrl:
+    Description: URL of the dead letter queue
+    Value: !Ref DeadLetterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DLQUrl'
