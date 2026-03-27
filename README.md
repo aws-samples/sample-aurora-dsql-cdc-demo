@@ -172,7 +172,6 @@ cat > trust-policy.json << EOF
 EOF
 ```
 
-> **Note for Production:** Replace `dsql-gamma.aws.internal` with `dsql.amazonaws.com` in the trust policy.
 
 #### 4.2 Create the Permissions Policy
 
