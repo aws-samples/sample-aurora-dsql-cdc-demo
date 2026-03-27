@@ -144,9 +144,9 @@ DSQL needs to assume an IAM role to publish CDC events to your Kinesis stream. T
 ```bash
 export CDC_ROLE_NAME="dsql-cdc-kinesis-role"
 
-# For Gamma environment, use dsql-gamma.aws.internal
+
 # For Production, use dsql.amazonaws.com
-export DSQL_SERVICE_PRINCIPAL="dsql-gamma.aws.internal"
+export DSQL_SERVICE_PRINCIPAL="dsql.amazonaws.com"
 
 cat > trust-policy.json << EOF
 {
