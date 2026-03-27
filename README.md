@@ -292,7 +292,7 @@ aws dsql get-stream \
 #### 6.1 Generate Authentication Token
 
 ```bash
-export CLUSTER_HOST="${CLUSTER_ID}.dsql-gamma.${REGION}.on.aws"
+export CLUSTER_HOST="${CLUSTER_ID}.dsql.${REGION}.on.aws"
 
 export PGPASSWORD=$(aws dsql generate-db-connect-admin-auth-token \
   --hostname ${CLUSTER_HOST} \
