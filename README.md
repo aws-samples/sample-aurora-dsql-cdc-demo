@@ -50,7 +50,7 @@ This demo showcases Amazon DSQL's Change Data Capture (CDC) feature, streaming r
 
 ```bash
 export REGION="us-east-2"
-export DSQL_ENDPOINT="https://dsql-gamma.${REGION}.api.aws"
+export DSQL_ENDPOINT="https://dsql.${REGION}.api.aws"
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ```
 
@@ -71,7 +71,7 @@ Expected Output:
     "status": "CREATING",
     "creationTime": "2025-01-15T10:30:00.000000+00:00",
     "deletionProtectionEnabled": true,
-    "endpoint": "abc123xyz456.dsql-gamma.us-east-2.on.aws"
+    "endpoint": "abc123xyz456.dsql.us-east-2.on.aws"
 }
 ```
 
