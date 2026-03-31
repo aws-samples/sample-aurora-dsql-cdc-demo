@@ -163,7 +163,7 @@ cat > trust-policy.json << EOF
                     "aws:SourceAccount": "${ACCOUNT_ID}"
                 },
                 "ArnEquals": {
-                    "aws:SourceArn": "arn:aws:dsql:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER_ID}"
+                    "aws:SourceArn": "arn:aws:dsql:*:${ACCOUNT_ID}:cluster/*"
                 }
             }
         }
