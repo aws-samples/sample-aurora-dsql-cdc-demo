@@ -308,6 +308,11 @@ PGSSLMODE=require psql \
   -d postgres
 ```
 
+```bash
+#create the table
+psql "host=$CLUSTER_HOST port=5432 dbname=postgres user=admin sslmode=require" -f create_tables.sql
+```
+
 Alternative one-liner to replace 6.1 and 6.2:
 
 ```bash
