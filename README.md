@@ -376,15 +376,23 @@ Each CDC event looks like:
 
 ```json
 {
-  "op": "c",
-  "before": null,
-  "after": {"id": "4145bd53-...", "name": "Alice", "email": "alice@example.com"},
-  "source": {
-    "ts_ns": 1773771026226299059,
-    "txId": "dco3gwn3dfalh424f7ap6oiysu",
-    "table": "users",
-    "schema": "public"
-  }
+    "op": "c",                          // "c" = create/insert
+    "before": null,                     // null for inserts
+    "after": {
+        "id": "e17ca3fe-cf55-4b7f-8c71-1101a6fa1753",
+        "name": "User471",
+        "email": "user471@example.com"
+    },
+    "source": {
+        "version": "1.0",
+        "ts_ms": 1775074947790,
+        "ts_ns": 1775074947790874837,   // transaction commit timestamp (nanoseconds)
+        "txId": "kztvflmmvgu7q7vdvekt3zwtny",
+        "schema": "public",
+        "table": "users",
+        "db": "postgres",
+        "cluster": "xxxxxxasaegafada"
+    }
 }
 ```
 
