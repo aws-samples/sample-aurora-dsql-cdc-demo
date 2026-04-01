@@ -344,7 +344,7 @@ aws cloudformation deploy \
 Connect to your DSQL cluster and load sample data (customers, products, orders, reviews, users):
 
 ```bash
-psql "host=$CLUSTER_ENDPOINT port=5432 dbname=postgres user=admin sslmode=require" \
+psql "host=$CLUSTER_HOST port=5432 dbname=postgres user=admin sslmode=require" \
   -f insert_data.sql
 ```
 
