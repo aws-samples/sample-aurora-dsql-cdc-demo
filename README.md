@@ -388,7 +388,7 @@ Each CDC event looks like:
 }
 ```
 
-- `op`: Operation type: `c` (create/insert), `u` (update), `d` (delete)
+- `op`: Operation type: `c` (create/insert/update),  `d` (delete)
 - `before` / `after`: Row state before and after the change
 - `source.ts_ns`: Transaction commit timestamp (nanoseconds since epoch)
 
