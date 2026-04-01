@@ -353,6 +353,13 @@ psql "host=$CLUSTER_HOST port=5432 dbname=postgres user=admin sslmode=require" \
 Read directly from the Kinesis stream to see CDC events:
 
 ```bash
+# List shards in the stream
+aws kinesis list-shards \
+  --stream-name ${KINESIS_STREAM_NAME} \
+  --region ${REGION}
+```
+
+```bash
 # Get a shard iterator
 SHARD_ITERATOR=$(aws kinesis get-shard-iterator \
   --stream-name dsql-cdc-stream \
