@@ -318,7 +318,7 @@ Alternative one-liner to replace 6.1 and 6.2:
 ```bash
 PGPASSWORD=$(aws dsql generate-db-connect-admin-auth-token --hostname ${CLUSTER_ID}.dsql-gamma.${REGION}.on.aws --region ${REGION}) \
 PGSSLMODE=require \
-psql -h ${CLUSTER_ID}.dsql-gamma.${REGION}.on.aws -U admin -d postgres
+psql -h ${CLUSTER_ID}.dsql.${REGION}.on.aws -U admin -d postgres
 ```
 
 ### Step 7: Deploy the Processing Pipeline
