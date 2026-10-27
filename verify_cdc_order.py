@@ -4,6 +4,7 @@
 import argparse
 import base64
 import json
+import os
 import time
 from collections import defaultdict
 
@@ -84,8 +85,14 @@ def verify_ordering(records):
 def main():
     parser = argparse.ArgumentParser(description="Verify CDC ordering from Kinesis")
     parser.add_argument("--stream", required=True, help="Kinesis stream name")
-    parser.add_argument("--region", default="us-east-2")
+    parser.add_argument(
+        "--region",
+        default=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
+        help="AWS region (defaults to AWS_REGION / AWS_DEFAULT_REGION env var)",
+    )
     args = parser.parse_args()
+    if not args.region:
+        parser.error("--region is required (or set AWS_REGION / AWS_DEFAULT_REGION)")
 
     print(f"Reading all records from {args.stream}...")
     records = read_all_records(args.stream, args.region)

@@ -6,17 +6,19 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import json
-import boto3
+import os
 import sys
 
-# Initialize clients
-bedrock = boto3.client('bedrock-runtime', region_name='us-east-2')
-s3vectors = boto3.client('s3vectors', region_name='us-east-2')
-s3 = boto3.client('s3', region_name='us-east-2')
+import boto3
 
-VECTOR_BUCKET = 'dsql-cdc-vectors'
-INDEX_NAME = 'cdc-events'
-DATA_BUCKET = 'dsql-cdc-processed-771062417019'
+# Region is picked up from AWS_REGION / AWS_DEFAULT_REGION or the active AWS profile.
+bedrock = boto3.client('bedrock-runtime')
+s3vectors = boto3.client('s3vectors')
+s3 = boto3.client('s3')
+
+VECTOR_BUCKET = os.environ.get('VECTOR_BUCKET', 'dsql-cdc-vectors')
+INDEX_NAME = os.environ.get('INDEX_NAME', 'cdc-events')
+DATA_BUCKET = os.environ['DATA_BUCKET']
 
 def generate_embedding(text):
     """Generate embedding for query text"""

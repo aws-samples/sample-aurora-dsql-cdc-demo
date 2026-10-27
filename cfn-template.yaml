@@ -2,25 +2,29 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'DSQL CDC Pipeline with Lambda, Bedrock, and S3 Vectors'
 
 Parameters:
-  KinesisStreamArn:
+  KinesisStreamName:
     Type: String
-    Description: ARN of the existing Kinesis stream for CDC events
-    Default: arn:aws:kinesis:us-east-2:771062417019:stream/dsql-cdc-stream
-  
+    Description: Name of the existing Kinesis stream for CDC events
+    Default: dsql-cdc-stream
+
   DataBucketName:
     Type: String
-    Description: S3 bucket name for storing CDC event data
-    Default: dsql-cdc-processed-771062417019
-  
+    Description: S3 bucket name for storing CDC event data. Must be globally unique.
+
   VectorBucketName:
     Type: String
     Description: S3 Vectors bucket name
     Default: dsql-cdc-vectors
-  
+
   VectorIndexName:
     Type: String
     Description: S3 Vectors index name
     Default: cdc-events
+
+  ResourcePrefix:
+    Type: String
+    Description: Prefix for named resources (Lambda, DLQ, log group). Must be unique per stack in a region.
+    Default: dsql-cdc
 
 Resources:
   # S3 Access Logging Bucket
@@ -111,7 +115,7 @@ Resources:
   DeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: dsql-cdc-dlq
+      QueueName: !Sub '${ResourcePrefix}-dlq'
       MessageRetentionPeriod: 1209600
       KmsMasterKeyId: alias/aws/sqs
 
@@ -143,7 +147,7 @@ Resources:
             Resource: '*'
             Condition:
               ArnLike:
-                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/dsql-cdc'
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ResourcePrefix}'
 
   # Managed Policies
   KinesisReadPolicy:
@@ -161,7 +165,7 @@ Resources:
               - kinesis:DescribeStreamSummary
               - kinesis:ListShards
               - kinesis:ListStreams
-            Resource: !Ref KinesisStreamArn
+            Resource: !Sub 'arn:${AWS::Partition}:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${KinesisStreamName}'
 
   S3DataPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -215,7 +219,7 @@ Resources:
               - logs:CreateLogGroup
               - logs:CreateLogStream
               - logs:PutLogEvents
-            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/dsql-cdc:*'
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ResourcePrefix}:*'
 
   DlqSendPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -252,7 +256,7 @@ Resources:
   CDCProcessorFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: dsql-cdc
+      FunctionName: !Ref ResourcePrefix
       Runtime: python3.12
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -353,7 +357,7 @@ Resources:
   LambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/lambda/dsql-cdc
+      LogGroupName: !Sub '/aws/lambda/${ResourcePrefix}'
       RetentionInDays: 7
       KmsKeyId: !GetAtt LogGroupKmsKey.Arn
 
@@ -361,7 +365,7 @@ Resources:
   KinesisEventSourceMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      EventSourceArn: !Ref KinesisStreamArn
+      EventSourceArn: !Sub 'arn:${AWS::Partition}:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${KinesisStreamName}'
       FunctionName: !Ref CDCProcessorFunction
       StartingPosition: LATEST
       BatchSize: 100

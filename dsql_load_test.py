@@ -4,6 +4,7 @@
 import argparse
 import concurrent.futures
 import json
+import os
 import time
 import uuid
 
@@ -138,12 +139,19 @@ def run_load_test(endpoint, region, table, num_rows, num_updates, num_deletes, w
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DSQL CDC Load Test")
     parser.add_argument("--endpoint", required=True, help="DSQL cluster endpoint")
-    parser.add_argument("--region", default="us-east-2")
+    parser.add_argument(
+        "--region",
+        default=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
+        help="AWS region (defaults to AWS_REGION / AWS_DEFAULT_REGION env var)",
+    )
     parser.add_argument("--table", default="users")
     parser.add_argument("--rows", type=int, default=100, help="Number of rows to insert")
     parser.add_argument("--updates", type=int, default=2, help="Number of updates per row")
     parser.add_argument("--deletes", type=int, default=10, help="Number of rows to delete")
     parser.add_argument("--workers", type=int, default=10, help="Concurrent workers")
     args = parser.parse_args()
+
+    if not args.region:
+        parser.error("--region is required (or set AWS_REGION / AWS_DEFAULT_REGION)")
 
     run_load_test(args.endpoint, args.region, args.table, args.rows, args.updates, args.deletes, args.workers)

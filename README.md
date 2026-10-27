@@ -67,7 +67,7 @@ Expected Output:
 ```json
 {
     "identifier": "abc123xyz456",
-    "arn": "arn:aws:dsql:us-east-2:123456789012:cluster/abc123xyz456",
+    "arn": "arn:aws:dsql:${REGION}:${ACCOUNT_ID}:cluster/abc123xyz456",
     "status": "CREATING",
     "creationTime": "2025-01-15T10:30:00.000000+00:00",
     "deletionProtectionEnabled": true,
@@ -257,7 +257,7 @@ Expected Output:
 {
     "clusterIdentifier": "abc123xyz456",
     "streamIdentifier": "xyz789def012",
-    "arn": "arn:aws:dsql:us-east-2:123456789012:cluster/abc123xyz456/stream/xyz789def012",
+    "arn": "arn:aws:dsql:${REGION}:${ACCOUNT_ID}:cluster/abc123xyz456/stream/xyz789def012",
     "status": "CREATING",
     "creationTime": "2025-01-15T10:45:00.000000+00:00",
     "ordering": "UNORDERED",
