@@ -2,7 +2,6 @@
 """Verify CDC ordering from Kinesis stream after load test."""
 
 import argparse
-import base64
 import json
 import os
 import time
@@ -82,6 +81,29 @@ def verify_ordering(records):
     return violations, len(by_id)
 
 
+def _tx_id(record):
+    return record.get("source", {}).get("txId") or record.get("source", {}).get("tx_id")
+
+
+def summarize_transactions(records):
+    """Group CDC events by source.txId and report DML counts per transaction."""
+    by_tx = defaultdict(list)
+    untagged = 0
+    for r in records:
+        tx = _tx_id(r)
+        if tx is None:
+            untagged += 1
+            continue
+        by_tx[tx].append(r)
+    sizes = [len(v) for v in by_tx.values()]
+    return {
+        "txn_count": len(by_tx),
+        "untagged_events": untagged,
+        "min_dmls_per_txn": min(sizes) if sizes else 0,
+        "max_dmls_per_txn": max(sizes) if sizes else 0,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Verify CDC ordering from Kinesis")
     parser.add_argument("--stream", required=True, help="Kinesis stream name")
@@ -89,6 +111,11 @@ def main():
         "--region",
         default=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
         help="AWS region (defaults to AWS_REGION / AWS_DEFAULT_REGION env var)",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Path to load_test_manifest.json; enables total-record count assertion",
     )
     args = parser.parse_args()
     if not args.region:
@@ -106,12 +133,39 @@ def main():
 
     print("\nVerifying per-entity ordering...")
     violations, entity_count = verify_ordering(records)
+    print(f"Entities tracked: {entity_count}")
 
-    print(f"\nEntities tracked: {entity_count}")
-    if violations == 0:
+    print("\nTransaction grouping (by source.txId)...")
+    tx_summary = summarize_transactions(records)
+    print(
+        f"  txns={tx_summary['txn_count']}  untagged_events={tx_summary['untagged_events']}  "
+        f"dmls_per_txn min={tx_summary['min_dmls_per_txn']} max={tx_summary['max_dmls_per_txn']}"
+    )
+
+    expected = None
+    if args.manifest:
+        try:
+            with open(args.manifest) as f:
+                manifest = json.load(f)
+            expected = manifest.get("totals", {}).get("total_dmls")
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  WARN: could not read manifest {args.manifest}: {e}")
+
+    print()
+    pass_ordering = violations == 0
+    pass_count = True
+    if expected is not None:
+        pass_count = len(records) == expected
+        status = "PASS" if pass_count else "FAIL"
+        print(f"{status}: total CDC records={len(records)}, expected (from manifest)={expected}")
+
+    if pass_ordering:
         print("PASS: All events are in order per entity.")
     else:
         print(f"FAIL: {violations} ordering violation(s) found.")
+
+    if not (pass_ordering and pass_count):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
