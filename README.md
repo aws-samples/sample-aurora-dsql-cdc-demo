@@ -424,7 +424,19 @@ aws logs tail /aws/lambda/dsql-cdc --since 5m --region us-east-2 | grep "REPORT"
 
 ### Step 12: Query with the Chatbot
 
+`chatbot.py` reads the S3 data bucket from the `DATA_BUCKET` environment
+variable (and optionally `VECTOR_BUCKET` / `INDEX_NAME` if you changed
+them from the defaults `dsql-cdc-vectors` / `cdc-events`). Pull the
+bucket name from the CloudFormation stack output so it stays
+account-agnostic:
+
 ```bash
+export DATA_BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name dsql-cdc-pipeline \
+  --region ${REGION} \
+  --query "Stacks[0].Outputs[?OutputKey=='DataBucketName'].OutputValue" \
+  --output text)
+
 python3 chatbot.py "find the user with email updated-8-0024e4af"
 python3 chatbot.py "list all customers from Denver"
 python3 chatbot.py "what are the top rated products?"
